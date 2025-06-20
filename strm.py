@@ -1,169 +1,150 @@
 import streamlit as st
 import pandas as pd
 import ccxt
+import plotly.express as px
 from datetime import datetime
 import time
 
 # Initialize Binance connection
 @st.cache_resource
-def init_binance():
-    return ccxt.binance({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'future'}  # or 'spot'
-    })
+def init_exchange():
+    try:
+        if not st.secrets.get("PAPER_TRADING", True):
+            return ccxt.binance({
+                'apiKey': st.secrets["BINANCE_API_KEY"],
+                'secret': st.secrets["BINANCE_SECRET"],
+                'enableRateLimit': True,
+                'options': {'defaultType': 'future'}
+            })
+        return ccxt.binance()  # Public API for paper trading
+    except Exception as e:
+        st.error(f"🚨 Exchange connection failed: {str(e)}")
+        st.stop()
 
-exchange = init_binance()
+exchange = init_exchange()
 
 # Page Config
-st.set_page_config(layout="wide", page_title="Binance Live Trader")
+st.set_page_config(
+    page_title="Binance Cloud Trader",
+    layout="wide",
+    page_icon="📊"
+)
 
-# CSS Styling
+# UI Styling
 st.markdown("""
 <style>
-    .metric-box {
-        border: 1px solid #2e4a7a;
+    .green { color: #00ffaa; }
+    .red { color: #ff4b4b; }
+    .metric-card {
         border-radius: 5px;
-        padding: 10px;
+        padding: 15px;
         background-color: #0e1117;
         margin-bottom: 10px;
     }
-    .positive { color: #00ffaa; }
-    .negative { color: #ff4b4b; }
-    .dataframe { font-size: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar Controls
-with st.sidebar:
-    st.header("Trading Parameters")
-    symbol = st.selectbox("Symbol", ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT'])
-    timeframe = st.selectbox("Timeframe", ['1m', '5m', '15m', '1h', '4h', '1d'])
-    st.markdown("---")
-    st.header("Risk Management")
-    trade_amount = st.number_input("Trade Size (USDT)", 100, 10000, 1000)
-    stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0)
-    take_profit = st.number_input("Take Profit (%)", 0.1, 20.0, 4.0)
-
-# Function to fetch live data
-@st.cache_data(ttl=5)  # Cache for 5 seconds
-def get_live_data(symbol, timeframe, limit=100):
+# Live Data Fetching
+@st.cache_data(ttl=5)  # 5-second cache
+def get_market_data(symbol, timeframe='1h', limit=100):
     try:
+        # OHLCV data
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['symbol'] = symbol.split('/')[0]
         
-        # Calculate order book imbalance (simplified example)
+        # Order book data
         orderbook = exchange.fetch_order_book(symbol)
-        bids = orderbook['bids']
-        asks = orderbook['asks']
-        bid_vol = sum([bid[1] for bid in bids[:5]])
-        ask_vol = sum([ask[1] for ask in asks[:5]])
-        imbalance = (bid_vol - ask_vol) / (bid_vol + ask_vol) if (bid_vol + ask_vol) > 0 else 0
+        bids = pd.DataFrame(orderbook['bids'][:5], columns=['Price', 'Amount'])
+        asks = pd.DataFrame(orderbook['asks'][:5], columns=['Price', 'Amount'])
         
-        return df, imbalance, orderbook
+        return df, bids, asks
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
-        return pd.DataFrame(), 0, {}
+        st.error(f"Data fetch error: {str(e)}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# Main Dashboard
-st.title(f"Binance Live Trading: {symbol}")
-
-# Control Panel
-col1, col2, col3 = st.columns([1,1,2])
-with col1:
-    auto_trade = st.checkbox("🟢 Auto Trading", False)
-with col2:
-    if st.button("🔄 Refresh Data"):
-        st.experimental_rerun()
-with col3:
-    st.markdown(f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-# Get live data
-df, imbalance, orderbook = get_live_data(symbol, timeframe)
-
-if not df.empty:
-    current_price = df['close'].iloc[-1]
+# Main App
+def main():
+    st.title("🚀 Binance Live Trading Bot")
     
-    # Portfolio Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(f'<div class="metric-box"><h4>Current Price</h4><h2>{current_price:.2f}</h2></div>', 
-                   unsafe_allow_html=True)
-    with col2:
-        imbalance_color = "positive" if imbalance > 0 else "negative"
-        st.markdown(f'<div class="metric-box"><h4>Order Book Imbalance</h4><h2 class="{imbalance_color}">{imbalance:.4f}</h2></div>', 
-                   unsafe_allow_html=True)
-    with col3:
-        st.markdown(f'<div class="metric-box"><h4>24h Volume</h4><h2>{df["volume"].sum():.2f}</h2></div>', 
-                   unsafe_allow_html=True)
-    with col4:
-        change = ((df['close'].iloc[-1] - df['open'].iloc[0]) / df['open'].iloc[0]) * 100
-        change_color = "positive" if change >= 0 else "negative"
-        st.markdown(f'<div class="metric-box"><h4>Period Change</h4><h2 class="{change_color}">{change:.2f}%</h2></div>', 
-                   unsafe_allow_html=True)
-
-    # Display charts
-    tab1, tab2 = st.tabs(["Price Chart", "Order Book"])
-    
-    with tab1:
-        st.line_chart(df.set_index('timestamp')['close'])
-    
-    with tab2:
-        bids = pd.DataFrame(orderbook['bids'][:10], columns=['Price', 'Amount'])
-        asks = pd.DataFrame(orderbook['asks'][:10], columns=['Price', 'Amount'])
+    # Sidebar Controls
+    with st.sidebar:
+        st.header("⚙️ Trading Parameters")
+        symbol = st.selectbox("Pair", ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'ADA/USDT'])
+        timeframe = st.selectbox("Interval", ['1m', '5m', '15m', '1h', '4h'])
+        auto_trade = st.checkbox("Enable Auto-Trading", False)
         
-        col1, col2 = st.columns(2)
+        st.header("📉 Risk Management")
+        trade_size = st.number_input("Trade Size (USDT)", 10, 10000, 100)
+        stop_loss = st.slider("Stop Loss (%)", 0.1, 10.0, 2.0)
+        take_profit = st.slider("Take Profit (%)", 0.1, 10.0, 4.0)
+    
+    # Get data
+    df, bids, asks = get_market_data(symbol, timeframe)
+    
+    if not df.empty:
+        current_price = df['close'].iloc[-1]
+        
+        # Metrics Dashboard
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.subheader("Bids")
-            st.dataframe(bids.style.format({'Price': '{:.4f}', 'Amount': '{:.4f}'}))
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>Current Price</h3>
+                <h2>{current_price:.2f}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
         with col2:
-            st.subheader("Asks")
-            st.dataframe(asks.sort_values('Price', ascending=False)
-                        .style.format({'Price': '{:.4f}', 'Amount': '{:.4f}'}))
+            change_pct = ((current_price - df['open'].iloc[0]) / df['open'].iloc[0]) * 100
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>Period Change</h3>
+                <h2 class="{'green' if change_pct >= 0 else 'red'}">{change_pct:.2f}%</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>24h Volume</h3>
+                <h2>{df['volume'].sum():.0f}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Charts
+        tab1, tab2 = st.tabs(["📈 Price Chart", "📊 Order Book"])
+        
+        with tab1:
+            fig = px.line(df, x='timestamp', y='close', title=f"{symbol} Price")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with tab2:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Bids")
+                st.dataframe(bids.style.format({'Price': '{:.4f}', 'Amount': '{:.2f}'}))
+            with col2:
+                st.subheader("Asks")
+                st.dataframe(asks.sort_values('Price', ascending=False)
+                           .style.format({'Price': '{:.4f}', 'Amount': '{:.2f}'}))
+        
+        # Trading Logic
+        if auto_trade and not st.secrets.get("PAPER_TRADING", True):
+            try:
+                # Example strategy: Buy when price > 5-period average
+                ma5 = df['close'].rolling(5).mean().iloc[-1]
+                if current_price > ma5:
+                    amount = trade_size / current_price
+                    exchange.create_market_buy_order(symbol, amount)
+                    st.success(f"Executed BUY: {amount:.4f} {symbol}")
+            except Exception as e:
+                st.error(f"Trade failed: {str(e)}")
+    else:
+        st.warning("No market data available")
 
-    # Trading Signals Table
-    st.subheader("Trading Opportunities")
-    
-    # Create signals dataframe
-    signals = []
-    for i in range(1, len(df)):
-        pct_change = (df['close'].iloc[i] - df['close'].iloc[i-1]) / df['close'].iloc[i-1] * 100
-        signals.append({
-            'timestamp': df['timestamp'].iloc[i],
-            'symbol': symbol,
-            'side': 'BUY' if pct_change > 0 else 'SELL',
-            'price': df['close'].iloc[i],
-            'change%': pct_change,
-            'volume': df['volume'].iloc[i]
-        })
-    
-    signals_df = pd.DataFrame(signals[-10:])  # Show last 10 signals
-    
-    # Color formatting
-    def color_signal(val):
-        color = 'green' if val == 'BUY' else 'red'
-        return f'color: {color}'
-    
-    st.dataframe(
-        signals_df.style.applymap(color_signal, subset=['side'])
-                  .format({'price': '{:.4f}', 'change%': '{:.2f}%', 'volume': '{:.2f}'}),
-        hide_index=True
-    )
-    
-    # Trading logic
-    if auto_trade and imbalance > 0.2:  # Example threshold
-        try:
-            amount = trade_amount / current_price
-            order = exchange.create_market_buy_order(symbol, amount)
-            st.success(f"Executed BUY order: {amount:.4f} {symbol} at {current_price:.2f}")
-        except Exception as e:
-            st.error(f"Trade failed: {e}")
-else:
-    st.warning("No data available - check your connection")
-
-# Run continuously
-st_autorefresh = st.empty()
-while True:
-    time.sleep(5)  # Refresh every 5 seconds
-    st_autorefresh.experimental_rerun()
+if __name__ == "__main__":
+    main()
+    # Auto-refresh every 60 seconds
+    time.sleep(60)
+    st.experimental_rerun()
