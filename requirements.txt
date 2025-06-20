@@ -1,7 +1,5 @@
-ccxt==4.2.85
-yfinance==0.2.31
-pandas==2.0.3
-numpy==1.24.4
-ta==0.10.2
 streamlit==1.28.0
+ccxt==4.2.85
+pandas==2.0.3
+plotly==5.15.0
 python-dotenv==1.0.0
