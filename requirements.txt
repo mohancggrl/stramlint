@@ -1,6 +1,5 @@
-streamlit==1.29.0  # Updated to newer version
-ccxt==4.2.85
-pandas==2.1.3  # Using newer version with pre-built wheels
-numpy==1.26.0  # Updated to compatible version
-plotly==5.15.0
-python-dotenv==1.0.0
+streamlit==1.32.0
+pandas==2.1.4
+numpy==1.26.0
+yfinance==0.2.31
+plotly==5.18.0
