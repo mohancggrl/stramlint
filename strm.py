@@ -8,16 +8,16 @@ from datetime import datetime
 if 'trades' not in st.session_state:
     st.session_state.trades = []
 if 'balance' not in st.session_state:
-    st.session_state.balance = 1000.00
+    st.session_state.balance = 100000.00  # Changed to INR (1 lakh)
 if 'auto_trading' not in st.session_state:
     st.session_state.auto_trading = False
 if 'order_book_data' not in st.session_state:
     st.session_state.order_book_data = pd.DataFrame()
 
-# Default trading parameters
+# Default trading parameters - converted to INR and adjusted amounts
 DEFAULT_PARAMS = {
-    'INITIAL_INVESTMENT': 1000.00,
-    'AMOUNT_PER_TRADE': 100.00,
+    'INITIAL_INVESTMENT': 100000.00,  # 1 lakh INR
+    'AMOUNT_PER_TRADE': 10000.00,     # 10k INR
     'STOP_LOSS_PCT': 5.0,
     'TAKE_PROFIT_PCT': 10.0,
     'BUY_THRESHOLD': 0.20,
@@ -138,12 +138,12 @@ def main():
     with st.sidebar:
         st.title("Trading Parameters")
         params = {
-            'initial_investment': st.number_input("Initial Investment ($)", 
+            'initial_investment': st.number_input("Initial Investment (₹)", 
                                                 value=DEFAULT_PARAMS['INITIAL_INVESTMENT'], 
-                                                step=100.0),
-            'amount_per_trade': st.number_input("Amount per Trade ($)", 
+                                                step=1000.0),
+            'amount_per_trade': st.number_input("Amount per Trade (₹)", 
                                              value=DEFAULT_PARAMS['AMOUNT_PER_TRADE'], 
-                                             step=10.0),
+                                             step=1000.0),
             'stop_loss_pct': st.number_input("Stop Loss (%)", 
                                           value=DEFAULT_PARAMS['STOP_LOSS_PCT'], 
                                           step=0.5),
@@ -185,16 +185,19 @@ def main():
     
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     with metric_col1:
-        st.metric("Current Balance", f"${st.session_state.balance:,.2f}")
+        st.metric("Current Balance", f"₹{st.session_state.balance:,.2f}")
     with metric_col2:
-        st.metric("Total PnL", f"${total_pnl:,.2f}", f"{pnl_percent:.2f}%")
+        st.metric("Total PnL", f"₹{total_pnl:,.2f}", f"{pnl_percent:.2f}%")
     with metric_col3:
         open_trades = len([t for t in st.session_state.trades if t['status'] == 'OPEN'])
         st.metric("Open Positions", open_trades)
     
     # Trading opportunities
     st.subheader("🔍 Trading Opportunities")
-    stock_symbols = ['AAPL', 'MSFT', 'GOOG', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM', 'V', 'WMT']
+    # Changed to Indian stocks (NSE symbols with .NS suffix for Yahoo Finance)
+    stock_symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS', 
+                    'HINDUNILVR.NS', 'ICICIBANK.NS', 'ITC.NS', 
+                    'KOTAKBANK.NS', 'BHARTIARTL.NS', 'LT.NS']
     
     try:
         with st.spinner("Loading market data..."):
@@ -212,10 +215,10 @@ def main():
         st.dataframe(
             st.session_state.order_book_data,
             column_config={
-                "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                "price": st.column_config.NumberColumn("Price", format="₹%.2f"),
                 "imbalance": st.column_config.NumberColumn("Imbalance", format="%.3f"),
                 "spread_pct": st.column_config.NumberColumn("Spread %", format="%.2f%%"),
-                "liquidity": st.column_config.NumberColumn("Liquidity", format="$%.0f")
+                "liquidity": st.column_config.NumberColumn("Liquidity", format="₹%.0f")
             },
             hide_index=True,
             use_container_width=True
@@ -251,21 +254,21 @@ def main():
             cols = st.columns([3, 2, 2, 1])
             with cols[0]:
                 st.write(f"**{trade['symbol']}** ({trade['company']})")
-                st.write(f"{trade['side']} {trade['shares']:.2f} shares @ ${trade['entry_price']:.2f}")
+                st.write(f"{trade['side']} {trade['shares']:.2f} shares @ ₹{trade['entry_price']:.2f}")
             with cols[1]:
                 st.write("**SL/TP**")
-                st.write(f"${trade['stop_loss']:.2f} / ${trade['take_profit']:.2f}")
+                st.write(f"₹{trade['stop_loss']:.2f} / ₹{trade['take_profit']:.2f}")
             with cols[2]:
                 current_price = get_market_data(trade['symbol'])['last_price']
                 pnl = (current_price - trade['entry_price']) * trade['shares'] if trade['side'] == 'BUY' \
                       else (trade['entry_price'] - current_price) * trade['shares']
                 st.write("**Current PnL**")
-                st.write(f"${pnl:.2f}")
+                st.write(f"₹{pnl:.2f}")
             with cols[3]:
                 if st.button("Close", key=f"close_{idx}"):
                     closed_trade = close_trade(idx)
                     if closed_trade:
-                        st.success(f"Closed with PnL: ${closed_trade['pnl']:.2f}")
+                        st.success(f"Closed with PnL: ₹{closed_trade['pnl']:.2f}")
                     st.rerun()
     else:
         st.info("No open positions")
@@ -282,10 +285,10 @@ def main():
             ]],
             column_config={
                 "timestamp": "Time",
-                "entry_price": st.column_config.NumberColumn("Entry", format="$%.2f"),
-                "exit_price": st.column_config.NumberColumn("Exit", format="$%.2f"),
-                "amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
-                "pnl": st.column_config.NumberColumn("PnL", format="$%.2f")
+                "entry_price": st.column_config.NumberColumn("Entry", format="₹%.2f"),
+                "exit_price": st.column_config.NumberColumn("Exit", format="₹%.2f"),
+                "amount": st.column_config.NumberColumn("Amount", format="₹%.2f"),
+                "pnl": st.column_config.NumberColumn("PnL", format="₹%.2f")
             },
             hide_index=True,
             use_container_width=True
